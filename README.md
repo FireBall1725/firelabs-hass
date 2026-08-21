@@ -53,6 +53,12 @@ Home Assistant polls `GET /api/status` every 5 seconds and writes changes with `
 
 The firmware also supports MQTT Discovery. Use one or the other, not both, to avoid two copies of the same entities. This integration is the path for setups that don't run MQTT.
 
+## Support
+
+Questions, updates, and works in progress: [FireBall Codes on Discord](https://discord.gg/QpV82CFfVD).
+
+If this saved you some time, you can [buy me a sushi roll](https://ko-fi.com/fireball1725).
+
 ## License
 
 [GNU AGPL-3.0](LICENSE).
