@@ -12,11 +12,12 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from . import s31, weather_display
+from . import plant_display, s31, weather_display
 
 MODELS: dict[str, ModuleType] = {
     "S31": s31,
     "WX": weather_display,
+    "PD": plant_display,
 }
 
 

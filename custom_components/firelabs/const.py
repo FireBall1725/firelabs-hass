@@ -12,8 +12,9 @@ HTTP_TIMEOUT = 8  # seconds
 # install pushes the release .bin to the device's existing /update endpoint.
 GITHUB_LATEST = "https://api.github.com/repos/{repo}/releases/latest"
 FIRMWARE_REPOS: dict[str, str] = {
-    "S31": "FireLabsCA/firelabs-s31-firmware",
-    "WX": "FireLabsCA/firelabs-weather-display",
+    "S31": "FireBall1725/firelabs-s31-firmware",
+    "WX": "FireBall1725/firelabs-weather-display",
+    "PD": "FireBall1725/firelabs-plant-display",
 }
 RELEASE_TTL = 6 * 3600  # seconds; GitHub unauthenticated is 60 req/hr/IP
 LATEST_POLL_INTERVAL = timedelta(hours=6)
@@ -63,5 +64,51 @@ WX_AVAILABLE_WINDOW = timedelta(minutes=95)
 # restart: persist the last check-in and restore it on startup instead of showing
 # everything as unavailable (and a false firmware update) until the device next wakes.
 WX_STORAGE_VERSION = 1
-WX_SNAPSHOT_KEYS = ("battery", "voltage", "fw", "wake", "last_seen")
+WX_SNAPSHOT_KEYS = (
+    "battery", "voltage", "fw", "wake", "rssi", "last_seen",
+    # PD display controls, owned by HA entities
+    "backlight", "brightness", "auto_dim", "dim_after", "dim_level",
+)
 WX_SAVE_DELAY = 5  # seconds; debounce snapshot writes
+
+# Plant Display (model "PD"). Mains powered and always on, but it talks to HA the
+# same way as the WX: it POSTs to a per-entry webhook every poll interval and gets
+# a plant bundle back. The plants and their entities live in the entry options.
+MODEL_PD = "PD"
+WEBHOOK_MODELS = (MODEL_WX, MODEL_PD)
+# Devices that fetch their own firmware from a URL instead of taking an upload.
+PULL_OTA_MODELS = (MODEL_PD,)
+
+PD_PLANT_SLOTS = 12  # the overview pages three cards at a time
+# Per-plant option keys are f"plant{n}_{field}". Readings map a bundle field to
+# the option field holding its sensor.
+PD_READINGS: dict[str, str] = {
+    "moisture": "moisture",
+    "temp": "temperature",
+    "lux": "illuminance",
+    "ec": "conductivity",
+    "battery": "battery",
+}
+PD_PLANT_FIELDS = (
+    "name", "species", *PD_READINGS.values(), "floor", "ceiling", "watered",
+)
+CONF_PD_LIGHT = "ent_light"
+CONF_PD_LIGHT_POWER = "ent_light_power"
+CONF_PD_POLL = "poll_sec"
+CONF_PD_SCREEN_FOLLOWS_LIGHT = "screen_follows_light"
+CONF_PD_ANOTHER = "another"  # options-flow only: show one more plant page
+# Plants from the plants-hass integration, by config entry id. When set, the
+# per-plant entity pickers are not used.
+CONF_PD_PLANTS = "plants"
+DEFAULT_PD_POLL = 60
+
+PD_HISTORY_HOURS = 168  # the week of hourly moisture behind each card's curve
+PD_HISTORY_TTL = 600  # seconds; statistics only change on the hour
+
+# It checks in every minute or so; a few missed polls means it's gone.
+PD_AVAILABLE_WINDOW = timedelta(minutes=10)
+
+
+def pd_key(n: int, field: str) -> str:
+    """Option key for plant slot n (1-based)."""
+    return f"plant{n}_{field}"

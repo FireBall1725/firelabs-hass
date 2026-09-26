@@ -4,10 +4,13 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, MODEL_WX, WX_STORAGE_VERSION
+from .const import DOMAIN, WEBHOOK_MODELS, WX_STORAGE_VERSION
 from .coordinator import FirelabsCoordinator
+from .services import async_register_services
 from .webhook import async_register_webhook, async_unregister_webhook
 
 PLATFORMS: list[Platform] = [
@@ -22,6 +25,15 @@ PLATFORMS: list[Platform] = [
     Platform.UPDATE,
 ]
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the integration's actions."""
+    async_register_services(hass)
+    return True
+
+
 # Identity fields seeded into the coordinator for a sleepy device, so setup does
 # not depend on the device being awake and reachable.
 _SEED_KEYS = ("host", "mac", "model", "name", "fw")
@@ -29,8 +41,8 @@ _SEED_KEYS = ("host", "mac", "model", "name", "fw")
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up FireLabs from a config entry."""
-    if entry.data.get("model") == MODEL_WX:
-        return await _async_setup_wx(hass, entry)
+    if entry.data.get("model") in WEBHOOK_MODELS:
+        return await _async_setup_webhook_device(hass, entry)
 
     coordinator = FirelabsCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
@@ -41,8 +53,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _async_setup_wx(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up a Weather Display: no polling, webhook-driven, options-mapped."""
+async def _async_setup_webhook_device(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up a Weather or Plant Display: no polling, webhook-driven, options-mapped."""
     coordinator = FirelabsCoordinator(hass, entry, poll=False)
     seed = {k: entry.data[k] for k in _SEED_KEYS if entry.data.get(k) is not None}
     seed = await coordinator.async_restore_snapshot(seed)
@@ -58,7 +70,7 @@ async def _async_setup_wx(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    if entry.data.get("model") == MODEL_WX:
+    if entry.data.get("model") in WEBHOOK_MODELS:
         async_unregister_webhook(hass, entry)
     if await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -74,7 +86,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     The coordinator is already torn down by this point, so address the store by key.
     """
-    if entry.data.get("model") == MODEL_WX:
+    if entry.data.get("model") in WEBHOOK_MODELS:
         await Store(
             hass, WX_STORAGE_VERSION, f"{DOMAIN}.wx.{entry.entry_id}"
         ).async_remove()

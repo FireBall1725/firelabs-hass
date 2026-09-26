@@ -1,0 +1,15 @@
+install_firmware:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: firelabs
+    url:
+      example: "https://github.com/FireBall1725/firelabs-plant-display/releases/download/26.9.1/firmware.bin"
+      selector:
+        text:
+    path:
+      example: "/config/firelabs/firmware.bin"
+      selector:
+        text:
