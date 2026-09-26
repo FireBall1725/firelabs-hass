@@ -31,7 +31,6 @@ from ..const import WX_AVAILABLE_WINDOW
 from ..coordinator import FirelabsCoordinator
 from ..entity import FirelabsEntity
 
-
 # ---------- telemetry sensors ----------
 
 @dataclass(frozen=True, kw_only=True)

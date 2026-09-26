@@ -1,7 +1,8 @@
-"""Per-entry webhook for the Weather Display.
+"""Per-entry check-in webhook for the Weather Display and the Plant Display.
 
-The device wakes, POSTs its telemetry, and gets the weather bundle back in the
-same response. The entity-to-field mapping lives in the config entry options, so
+The device POSTs its telemetry and gets its data bundle back in the same
+response. A model module can supply `async_build_bundle`; the WX uses the
+weather builder below. The entity-to-field mapping lives in the config entry options, so
 re-pointing the display at different sensors is a settings change with no reflash.
 """
 from __future__ import annotations
@@ -9,12 +10,12 @@ from __future__ import annotations
 import logging
 
 from aiohttp import web
-
 from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from . import models
 from .const import (
     CONF_LOCATION,
     CONF_QUIET_END,
@@ -39,7 +40,7 @@ _UNUSABLE = (None, "", "unknown", "unavailable")
 async def async_register_webhook(
     hass: HomeAssistant, entry: ConfigEntry, coordinator: FirelabsCoordinator
 ) -> None:
-    """Register the check-in webhook for a Weather Display entry."""
+    """Register the check-in webhook for a webhook-driven device entry."""
     webhook_id = entry.data[CONF_WEBHOOK_ID]
 
     async def handler(
@@ -53,7 +54,12 @@ async def async_register_webhook(
             body = {}
 
         coordinator.async_ingest_checkin(body)
-        bundle = await _build_bundle(hass, entry, coordinator)
+        module = models.for_model(entry.data.get("model"))
+        handle = getattr(module, "async_handle_action", None)
+        if handle and body.get("action"):
+            await handle(hass, entry, body)
+        build = getattr(module, "async_build_bundle", None) or _build_bundle
+        bundle = await build(hass, entry, coordinator)
 
         # Force-wake is one-shot: deliver it once, then clear it so the device
         # doesn't hold awake every cycle.
@@ -64,9 +70,9 @@ async def async_register_webhook(
         return web.json_response(bundle)
 
     webhook.async_register(
-        hass, DOMAIN, "FireLabs Weather Display", webhook_id, handler, local_only=True
+        hass, DOMAIN, f"FireLabs {entry.title}", webhook_id, handler, local_only=True
     )
-    _LOGGER.debug("Registered WX webhook %s", webhook_id)
+    _LOGGER.debug("Registered check-in webhook %s", webhook_id)
 
 
 def async_unregister_webhook(hass: HomeAssistant, entry: ConfigEntry) -> None:

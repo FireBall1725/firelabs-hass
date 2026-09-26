@@ -45,10 +45,58 @@
           "quiet_start": "Quiet hours start",
           "quiet_end": "Quiet hours end"
         }
+      },
+      "pd": {
+        "title": "Plant Display",
+        "description": "Paste this check-in URL into the display's web page:\n\n`{webhook_url}`\n\nPick plants from the Plants integration to show them, or leave that empty to set each plant up by hand on the next pages. The grow light shows in the top strip; with \"screen follows the light\" on, the screen switches off a minute after the light does and wakes on a touch.",
+        "data": {
+          "ent_light": "Grow light",
+          "ent_light_power": "Grow light power",
+          "screen_follows_light": "Screen follows the light",
+          "poll_sec": "Refresh interval",
+          "plants": "Plants to show (from the Plants integration)"
+        }
+      },
+      "plant": {
+        "title": "Plant {n}",
+        "description": "Leave the moisture sensor empty to leave this plant off the display. The name defaults to the sensor's device name. The display shows three plants per page, neediest first.",
+        "data": {
+          "name": "Name",
+          "species": "Species (shown on the detail screen)",
+          "moisture": "Moisture",
+          "temperature": "Temperature",
+          "illuminance": "Light",
+          "conductivity": "Fertility (conductivity)",
+          "battery": "Battery",
+          "floor": "Moisture floor (input_number)",
+          "ceiling": "Moisture ceiling (input_number)",
+          "watered": "Last watered",
+          "another": "Add another plant after this one"
+        }
       }
     },
     "abort": {
       "no_options": "This device has no options to configure."
+    }
+  },
+  "services": {
+    "install_firmware": {
+      "name": "Install firmware",
+      "description": "Install a specific firmware build on a FireLabs device, from a URL or a file in the Home Assistant config folder.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The FireLabs device to update."
+        },
+        "url": {
+          "name": "URL",
+          "description": "Where to download the firmware .bin."
+        },
+        "path": {
+          "name": "File",
+          "description": "A firmware .bin under the Home Assistant config folder."
+        }
+      }
     }
   }
 }

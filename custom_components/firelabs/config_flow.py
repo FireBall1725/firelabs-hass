@@ -6,7 +6,6 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-
 from homeassistant.components import webhook
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -22,18 +21,31 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     CONF_LOCATION,
+    CONF_PD_ANOTHER,
+    CONF_PD_LIGHT,
+    CONF_PD_LIGHT_POWER,
+    CONF_PD_PLANTS,
+    CONF_PD_POLL,
+    CONF_PD_SCREEN_FOLLOWS_LIGHT,
     CONF_QUIET_END,
     CONF_QUIET_START,
     CONF_SLEEP_MIN,
     CONF_WEATHER_ENTITY,
     CONF_WEBHOOK_ID,
+    DEFAULT_PD_POLL,
     DEFAULT_QUIET_END,
     DEFAULT_QUIET_START,
     DEFAULT_SLEEP_MIN,
     DOMAIN,
     HTTP_TIMEOUT,
+    MODEL_PD,
     MODEL_WX,
+    PD_PLANT_FIELDS,
+    PD_PLANT_SLOTS,
+    PD_READINGS,
+    WEBHOOK_MODELS,
     WX_CURRENT_FIELDS,
+    pd_key,
 )
 
 
@@ -120,29 +132,82 @@ class FirelabsConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FirelabsOptionsFlow(OptionsFlow):
-    """Map HA entities to the weather bundle and set the device's settings."""
+    """Map HA entities to a display's bundle and set the device's settings."""
 
     def __init__(self, entry: ConfigEntry) -> None:
         self._entry = entry
+        self._data: dict[str, Any] = {}
+        self._plant = 0
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        if self._entry.data.get("model") != MODEL_WX:
-            return self.async_abort(reason="no_options")
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
+    def _webhook_url(self) -> str:
         webhook_id = self._entry.data.get(CONF_WEBHOOK_ID)
-        url = (
+        return (
             webhook.async_generate_url(self.hass, webhook_id, allow_external=False)
             if webhook_id
             else ""
         )
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        model = self._entry.data.get("model")
+        if model == MODEL_PD:
+            return await self.async_step_pd()
+        if model != MODEL_WX:
+            return self.async_abort(reason="no_options")
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
         return self.async_show_form(
             step_id="init",
             data_schema=_wx_options_schema(self._entry.options),
-            description_placeholders={"webhook_url": url},
+            description_placeholders={"webhook_url": self._webhook_url()},
+        )
+
+    async def async_step_pd(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Plant Display, first page: which plants, the grow light, the refresh interval.
+
+        Picking plants from the plants-hass integration skips the per-plant pages.
+        """
+        choices = {
+            entry_id: plant.name
+            for entry_id, plant in self.hass.data.get("plants", {}).get("plants", {}).items()
+        }
+        if user_input is not None:
+            self._data.update(user_input)
+            if user_input.get(CONF_PD_PLANTS):
+                return self.async_create_entry(title="", data=self._data)
+            self._data.pop(CONF_PD_PLANTS, None)
+            self._plant = 1
+            return await self.async_step_plant()
+        return self.async_show_form(
+            step_id="pd",
+            data_schema=_pd_options_schema(self._entry.options, choices),
+            description_placeholders={"webhook_url": self._webhook_url()},
+        )
+
+    async def async_step_plant(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """One page per plant; "add another" moves on to the next slot.
+
+        A slot with no moisture sensor is left off the display. Unticking "add
+        another" ends the list, which also drops any later plants.
+        """
+        if user_input is not None:
+            for field in PD_PLANT_FIELDS:
+                value = user_input.get(field)
+                if value not in (None, ""):
+                    self._data[pd_key(self._plant, field)] = value
+            if not user_input.get(CONF_PD_ANOTHER) or self._plant >= PD_PLANT_SLOTS:
+                return self.async_create_entry(title="", data=self._data)
+            self._plant += 1
+        return self.async_show_form(
+            step_id="plant",
+            data_schema=_pd_plant_schema(self._entry.options, self._plant),
+            description_placeholders={"n": str(self._plant)},
         )
 
 
@@ -192,6 +257,71 @@ def _wx_options_schema(opts: dict) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _pd_options_schema(opts: dict, plants: dict[str, str]) -> vol.Schema:
+    fields: dict[Any, Any] = {}
+    if plants:
+        fields[
+            vol.Optional(CONF_PD_PLANTS, description={"suggested_value": opts.get(CONF_PD_PLANTS)})
+        ] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[selector.SelectOptionDict(value=k, label=v) for k, v in plants.items()],
+                multiple=True,
+                mode=selector.SelectSelectorMode.LIST,
+            )
+        )
+    return vol.Schema(
+        {
+            **fields,
+            vol.Optional(
+                CONF_PD_LIGHT, description={"suggested_value": opts.get(CONF_PD_LIGHT)}
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["switch", "light", "input_boolean"])
+            ),
+            vol.Optional(
+                CONF_PD_LIGHT_POWER,
+                description={"suggested_value": opts.get(CONF_PD_LIGHT_POWER)},
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain=["sensor"])),
+            vol.Optional(
+                CONF_PD_SCREEN_FOLLOWS_LIGHT,
+                default=opts.get(CONF_PD_SCREEN_FOLLOWS_LIGHT, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_PD_POLL, default=opts.get(CONF_PD_POLL, DEFAULT_PD_POLL)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=15, max=600, step=15, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="s",
+                )
+            ),
+        }
+    )
+
+
+def _pd_plant_schema(opts: dict, n: int) -> vol.Schema:
+    def entity(domains: list[str]) -> selector.EntitySelector:
+        return selector.EntitySelector(selector.EntitySelectorConfig(domain=domains))
+
+    def opt(field: str) -> vol.Optional:
+        return vol.Optional(field, description={"suggested_value": opts.get(pd_key(n, field))})
+
+    fields: dict[Any, Any] = {
+        opt("name"): selector.TextSelector(),
+        opt("species"): selector.TextSelector(),
+    }
+    for reading in PD_READINGS.values():
+        fields[opt(reading)] = entity(["sensor"])
+    fields[opt("floor")] = entity(["input_number", "number", "sensor"])
+    fields[opt("ceiling")] = entity(["input_number", "number", "sensor"])
+    fields[opt("watered")] = entity(["input_datetime", "sensor"])
+    if n < PD_PLANT_SLOTS:
+        # Default to continuing when the next slot is already set up, so editing
+        # plant 1 of 5 doesn't silently drop plants 2 to 5.
+        fields[
+            vol.Optional(CONF_PD_ANOTHER, default=bool(opts.get(pd_key(n + 1, "moisture"))))
+        ] = selector.BooleanSelector()
+    return vol.Schema(fields)
+
+
 def _uid(mac: str) -> str:
     return mac.replace(":", "").lower()
 
@@ -208,6 +338,6 @@ def _entry_data(status: dict, host: str) -> dict:
         "name": status.get("name"),
         "fw": status.get("fw"),
     }
-    if status.get("model") == MODEL_WX:
+    if status.get("model") in WEBHOOK_MODELS:
         data[CONF_WEBHOOK_ID] = webhook.async_generate_id()
     return {k: v for k, v in data.items() if v is not None}
